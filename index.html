@@ -66,6 +66,7 @@
 
     const $ = (id) => document.getElementById(id);
     const SCREENS = ["home", "lobby", "game", "voting", "finished"];
+    const SESSION_KEY = "imposteur-lol-session";
 
     function say(text) { $("message").textContent = text; }
 
@@ -137,6 +138,11 @@
     function enterRoom(code, playerId) {
       roomCode = code;
       myId = playerId;
+
+      // On retient où l'on est, pour pouvoir revenir après un rechargement de page
+      try {
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify({ roomCode: code, playerId }));
+      } catch (e) { console.error(e); }
 
       // On écoute les trois tables : joueurs, salon et votes
       db.channel("room-" + code)
@@ -308,6 +314,33 @@
       await db.from("players").update({ is_impostor: false }).eq("room_code", roomCode);
       await db.from("rooms").update({ status: "lobby", result: null }).eq("code", roomCode);
     });
+
+    // ---------- Retrouver sa place après un rechargement ----------
+
+    // Au chargement de la page : si on avait une place dans un salon, on y retourne
+    async function restoreSession() {
+      let saved = null;
+      try {
+        saved = JSON.parse(sessionStorage.getItem(SESSION_KEY));
+      } catch (e) { saved = null; }
+      if (!saved) return;
+
+      // On vérifie que le joueur existe toujours (le salon existe alors forcément aussi)
+      const { data: player } = await db
+        .from("players")
+        .select("id")
+        .eq("id", saved.playerId)
+        .eq("room_code", saved.roomCode)
+        .maybeSingle();
+
+      if (!player) {
+        sessionStorage.removeItem(SESSION_KEY);
+        return;
+      }
+      enterRoom(saved.roomCode, saved.playerId);
+    }
+
+    restoreSession();
   </script>
 </body>
 </html>
