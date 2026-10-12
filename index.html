@@ -14,7 +14,7 @@
       document.documentElement.setAttribute("data-theme", t);
     })();
   </script>
-  <title>Imposteur LoL</title>
+  <title>La Taupe de la Faille</title>
   <style>
     :root {
       --line: #2b2d42; --text: #2b2d42; --card: #fff;
@@ -42,6 +42,17 @@
     }
     h2 { margin: 0 0 14px; font-size: 1.6rem; }
     h3 { margin: 20px 0 10px; font-size: 1.2rem; }
+
+    /* Logo : la mascotte et le nom, en SVG (net à toutes les tailles) */
+    h1.logo { margin: 0; }
+    .logo svg { display: block; width: min(420px, 92vw); height: auto; }
+    .logo-text {
+      font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif; font-weight: 800;
+      stroke: var(--line); stroke-width: 9px; stroke-linejoin: round; paint-order: stroke fill;
+    }
+    .logo-main { fill: #fff; }
+    .logo-sub { fill: #ffd166; }
+    [data-theme="dark"] .logo-main { fill: #ff9fd0; }
 
     /* Chaque écran est une "carte" avec contour épais et ombre décalée */
     #home, #lobby, #game, #voting, #finished {
@@ -146,7 +157,7 @@
 
     /* Sur téléphone : cartes plus compactes, boutons pleine largeur */
     @media (max-width: 600px) {
-      body { padding: 18px 10px 36px; }
+      body { padding: 64px 10px 36px; }
       #home, #lobby, #game, #voting, #finished { padding: 18px; box-shadow: 5px 5px 0 var(--line); }
       #home button, #lobby > button, #game > button, #finished button, #hostButtons button { width: 100%; }
     }
@@ -154,7 +165,42 @@
 </head>
 <body>
   <button id="themeToggle" aria-label="Changer de thème"></button>
-  <h1>Imposteur LoL</h1>
+  <h1 class="logo">
+    <svg viewBox="0 0 420 160" role="img" aria-label="La Taupe de la Faille">
+      <!-- Le trou, derrière la taupe -->
+      <ellipse cx="75" cy="124" rx="58" ry="15" fill="#2a1d1d" stroke="#2b2d42" stroke-width="4"/>
+      <!-- La taupe -->
+      <circle cx="36" cy="54" r="10" fill="#9b7653" stroke="#2b2d42" stroke-width="4"/>
+      <circle cx="114" cy="54" r="10" fill="#9b7653" stroke="#2b2d42" stroke-width="4"/>
+      <ellipse cx="75" cy="84" rx="44" ry="48" fill="#9b7653" stroke="#2b2d42" stroke-width="4"/>
+      <ellipse cx="75" cy="98" rx="27" ry="22" fill="#d9b99b"/>
+      <!-- Grosses lunettes -->
+      <circle cx="55" cy="68" r="16" fill="#fff" stroke="#2b2d42" stroke-width="4"/>
+      <circle cx="95" cy="68" r="16" fill="#fff" stroke="#2b2d42" stroke-width="4"/>
+      <path d="M71 68 H79" stroke="#2b2d42" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="58" cy="70" r="5.5" fill="#2b2d42"/>
+      <circle cx="92" cy="70" r="5.5" fill="#2b2d42"/>
+      <circle cx="60" cy="68" r="1.8" fill="#fff"/>
+      <circle cx="94" cy="68" r="1.8" fill="#fff"/>
+      <!-- Museau rose -->
+      <ellipse cx="75" cy="90" rx="13" ry="9" fill="#ff8fc7" stroke="#2b2d42" stroke-width="3.5"/>
+      <ellipse cx="75" cy="87" rx="6" ry="3.5" fill="#ff5d9e"/>
+      <!-- Le doigt devant la bouche : chut ! -->
+      <rect x="69" y="98" width="12" height="28" rx="6" fill="#c9a27e" stroke="#2b2d42" stroke-width="3.5"/>
+      <!-- Le bord de terre, devant -->
+      <path d="M8 126 Q8 150 75 153 Q142 150 142 126 Q142 116 126 114 L24 114 Q8 116 8 126 Z"
+            fill="#a1745a" stroke="#2b2d42" stroke-width="4" stroke-linejoin="round"/>
+      <circle cx="30" cy="132" r="3.5" fill="#7d5640"/>
+      <circle cx="58" cy="140" r="3" fill="#7d5640"/>
+      <circle cx="104" cy="138" r="4" fill="#7d5640"/>
+      <circle cx="126" cy="128" r="3" fill="#7d5640"/>
+      <!-- Le nom -->
+      <g transform="rotate(-3 290 80)">
+        <text class="logo-text logo-main" x="162" y="78" font-size="56" textLength="250" lengthAdjust="spacingAndGlyphs">La Taupe</text>
+        <text class="logo-text logo-sub" x="170" y="122" font-size="36" textLength="236" lengthAdjust="spacingAndGlyphs">de la Faille</text>
+      </g>
+    </svg>
+  </h1>
   <p id="codeBanner" hidden>Code du salon : <strong id="bannerCode"></strong></p>
 
   <!-- Écran 1 : accueil -->
