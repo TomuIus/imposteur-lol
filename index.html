@@ -2,7 +2,123 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Imposteur LoL</title>
+  <style>
+    :root { --ink: #2b2d42; --paper: #fff4d6; }
+    [hidden] { display: none !important; }
+
+    /* Fond façon plateau de jeu : crème avec petits points */
+    body {
+      margin: 0; padding: 28px 16px 48px;
+      display: flex; flex-direction: column; align-items: center; gap: 18px;
+      font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+      color: var(--ink); background-color: var(--paper);
+      background-image: radial-gradient(#f3d9a0 2px, transparent 2px);
+      background-size: 26px 26px;
+    }
+    h1 {
+      margin: 0; text-align: center; font-size: clamp(2.2rem, 6vw, 3.4rem);
+      color: #ff5d73; text-shadow: 3px 3px 0 var(--ink); letter-spacing: 1px;
+    }
+    h2 { margin: 0 0 14px; font-size: 1.6rem; }
+
+    /* Chaque écran est une "carte" avec contour épais et ombre décalée */
+    #home, #lobby, #game, #voting, #finished {
+      box-sizing: border-box; width: 100%; max-width: 560px;
+      padding: 24px; background: #fff;
+      border: 3px solid var(--ink); border-radius: 20px; box-shadow: 7px 7px 0 var(--ink);
+    }
+    #home { display: flex; flex-direction: column; gap: 12px; }
+    #home br, #lobby br { display: none; }
+
+    /* Code du salon : une pastille bien visible */
+    #codeBanner {
+      margin: 0; padding: 8px 18px; font-weight: 700;
+      background: #ffd166; border: 3px solid var(--ink); border-radius: 999px;
+      box-shadow: 3px 3px 0 var(--ink);
+    }
+    #bannerCode, #roomCode { font-size: 1.3em; letter-spacing: .25em; }
+    #roomCode { color: #ef476f; }
+
+    /* Champs de saisie */
+    input {
+      box-sizing: border-box; width: 100%; font: inherit; font-size: 1.1rem;
+      padding: 12px 14px; border: 3px solid var(--ink); border-radius: 14px;
+    }
+    input:focus { outline: 3px solid #4cc9f0; }
+    #code { text-align: center; text-transform: uppercase; letter-spacing: .3em; font-weight: 700; }
+    #message { margin: 0; min-height: 1.2em; color: #d62839; font-weight: 700; }
+
+    /* Boutons : gros, arrondis, avec un effet d'enfoncement */
+    button {
+      font: inherit; font-weight: 700; font-size: 1.05rem; min-height: 48px;
+      padding: 10px 22px; margin-bottom: 6px; cursor: pointer;
+      color: var(--ink); background: #fff;
+      border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 5px 0 var(--ink);
+      transition: transform .08s, box-shadow .08s;
+    }
+    button:hover:not(:disabled) { transform: translateY(-1px); }
+    button:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 1px 0 var(--ink); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    #create, #again { background: #ffd166; }
+    #join, #toggleRole { background: #4cc9f0; }
+    #start, #win { background: #06d6a0; }
+    #loss, #closeRoom { background: #ff5d73; color: #fff; }
+
+    /* Liste des joueurs : une pastille de couleur par joueur, façon équipage */
+    #players, #voteResult { list-style: none; margin: 0 0 14px; padding: 0; }
+    #players li {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
+      padding: 10px 14px; font-weight: 700; font-size: 1.1rem;
+      background: var(--paper); border: 3px solid var(--ink); border-radius: 14px;
+    }
+    #players li::before {
+      content: ""; flex: none; width: 22px; height: 22px; border-radius: 50%;
+      border: 3px solid var(--ink); background: #ef476f;
+    }
+    #players li:nth-child(5n+2)::before { background: #ffd166; }
+    #players li:nth-child(5n+3)::before { background: #06d6a0; }
+    #players li:nth-child(5n+4)::before { background: #4cc9f0; }
+    #players li:nth-child(5n+5)::before { background: #b185db; }
+    #players li button {
+      margin: 0 0 0 auto; min-height: 36px; padding: 4px 14px; font-size: .9rem;
+      background: #ff5d73; color: #fff; box-shadow: 0 3px 0 var(--ink);
+    }
+    #count { margin: 0 0 16px; font-weight: 700; opacity: .7; }
+
+    /* Écran de jeu */
+    #role {
+      margin: 16px 0; padding: 20px; text-align: center; font-size: 1.3rem; font-weight: 700;
+      border: 3px solid var(--ink); border-radius: 16px;
+    }
+    #role.impostor { background: #ff5d73; color: #fff; }
+    #role.crew { background: #4cc9f0; }
+    #hostButtons {
+      display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; padding-top: 18px;
+      border-top: 3px dashed var(--ink);
+    }
+    #hostButtons p { width: 100%; margin: 0; font-weight: 700; }
+
+    /* Vote : de grosses cases à toucher */
+    #voteStatus { font-size: 1.2rem; font-weight: 700; margin-top: 0; }
+    #voteList { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+    #voteList button { background: #b185db; color: #fff; min-height: 60px; font-size: 1.15rem; }
+
+    /* Résultat */
+    #resultText { font-size: 1.3rem; font-weight: 700; line-height: 1.4; }
+    #voteResult li {
+      margin-bottom: 8px; padding: 8px 14px; font-weight: 700;
+      background: var(--paper); border: 2px solid var(--ink); border-radius: 12px;
+    }
+
+    /* Sur téléphone : cartes plus compactes, boutons pleine largeur */
+    @media (max-width: 600px) {
+      body { padding: 18px 10px 36px; }
+      #home, #lobby, #game, #voting, #finished { padding: 18px; box-shadow: 5px 5px 0 var(--ink); }
+      #home button, #lobby > button, #game > button, #finished button, #hostButtons button { width: 100%; }
+    }
+  </style>
 </head>
 <body>
   <h1>Imposteur LoL</h1>
@@ -332,6 +448,7 @@
         roleEl.textContent = myRole
           ? "Vous êtes l'IMPOSTEUR : faites perdre l'équipe sans vous faire repérer."
           : "Vous êtes un ÉQUIPIER : gagnez la partie et démasquez l'imposteur.";
+        roleEl.className = myRole ? "impostor" : "crew";
         roleEl.hidden = false;
         $("toggleRole").textContent = "Cacher mon rôle";
       }
