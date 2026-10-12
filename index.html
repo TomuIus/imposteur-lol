@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Imposteur LoL</title>
+</head>
+<body>
+  <h1>Imposteur LoL</h1>
+
+  <!-- Écran 1 : accueil -->
+  <div id="home">
+    <input id="pseudo" placeholder="Pseudo">
+    <button id="create">Créer un salon</button>
+    <br><br>
+    <input id="code" placeholder="Code du salon" maxlength="4">
+    <button id="join">Rejoindre</button>
+    <p id="message"></p>
+  </div>
+
+  <!-- Écran 2 : salle d'attente -->
+  <div id="lobby" hidden>
+    <h2>Salon <span id="roomCode"></span></h2>
+    <ul id="players"></ul>
+    <p id="count"></p>
+    <button id="start" hidden>Lancer la partie</button>
+  </div>
+
+  <!-- Écran 3 : partie en cours -->
+  <div id="game" hidden>
+    <h2>Partie en cours</h2>
+    <button id="toggleRole">Voir mon rôle</button>
+    <p id="role" hidden></p>
+    <div id="hostButtons" hidden>
+      <p>Résultat de la partie de League of Legends :</p>
+      <button id="win">Victoire</button>
+      <button id="loss">Défaite</button>
+    </div>
+  </div>
+
+  <!-- Écran 4 : vote -->
+  <div id="voting" hidden>
+    <h2>Vote</h2>
+    <p id="voteStatus"></p>
+    <div id="voteList"></div>
+  </div>
+
+  <!-- Écran 5 : résultat -->
+  <div id="finished" hidden>
+    <h2>Fin de partie</h2>
+    <p id="resultText"></p>
+    <ul id="voteResult"></ul>
+    <button id="again" hidden>Nouvelle partie</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script>
+    // À remplacer par vos propres informations
+    const SUPABASE_URL = "https://oazlcjvblrgqllywyrsa.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_Z07-Kw4YAAKII4b7nWKoJw_GLgCKlgm";
+
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let roomCode = null;
+    let myId = null;
+    let myRole = null; // true = imposteur, false = équipier
+
+    const $ = (id) => document.getElementById(id);
+    const SCREENS = ["home", "lobby", "game", "voting", "finished"];
+
+    function say(text) { $("message").textContent = text; }
+
+    function show(screen) {
+      for (const s of SCREENS) $(s).hidden = (s !== screen);
+    }
+
+    function randomCode() {
+      const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+      let c = "";
+      for (let i = 0; i < 4; i++) c += letters[Math.floor(Math.random() * letters.length)];
+      return c;
+    }
+
+    async function addPlayer(code, pseudo) {
+      const { data, error } = await db
+        .from("players")
+        .insert({ room_code: code, pseudo })
+        .select()
+        .single();
+      if (error) { console.error(error); say("Impossible de rejoindre le salon."); return null; }
+      return data;
+    }
+
+    // ---------- Accueil ----------
+
+    $("create").addEventListener("click", async () => {
+      const pseudo = $("pseudo").value.trim();
+      if (!pseudo) return say("Entrez un pseudo.");
+
+      let code, error;
+      for (let i = 0; i < 5; i++) {
+        code = randomCode();
+        ({ error } = await db.from("rooms").insert({ code }));
+        if (!error) break;
+      }
+      if (error) { console.error(error); return say("Impossible de créer le salon."); }
+
+      const player = await addPlayer(code, pseudo);
+      if (!player) return;
+
+      await db.from("rooms").update({ host_id: player.id }).eq("code", code);
+      enterRoom(code, player.id);
+    });
+
+    $("join").addEventListener("click", async () => {
+      const pseudo = $("pseudo").value.trim();
+      const code = $("code").value.trim().toUpperCase();
+      if (!pseudo) return say("Entrez un pseudo.");
+      if (!code) return say("Entrez un code de salon.");
+
+      const { data: room } = await db.from("rooms").select("*").eq("code", code).maybeSingle();
+      if (!room) return say("Salon introuvable.");
+      if (room.status !== "lobby") return say("La partie a déjà commencé.");
+
+      const { count } = await db
+        .from("players")
+        .select("*", { count: "exact", head: true })
+        .eq("room_code", code);
+      if (count >= room.max_players) return say("Salon complet.");
+
+      const player = await addPlayer(code, pseudo);
+      if (!player) return;
+      enterRoom(code, player.id);
+    });
+
+    // ---------- Temps réel ----------
+
+    function enterRoom(code, playerId) {
+      roomCode = code;
+      myId = playerId;
+
+      // On écoute les trois tables : joueurs, salon et votes
+      db.channel("room-" + code)
+        .on("postgres_changes",
+            { event: "*", schema: "public", table: "players", filter: `room_code=eq.${code}` },
+            refresh)
+        .on("postgres_changes",
+            { event: "*", schema: "public", table: "rooms", filter: `code=eq.${code}` },
+            refresh)
+        .on("postgres_changes",
+            { event: "*", schema: "public", table: "votes", filter: `room_code=eq.${code}` },
+            refresh)
+        .subscribe();
+
+      refresh();
+    }
+
+    // Relit tout et choisit l'écran selon le statut du salon
+    async function refresh() {
+      const { data: room } = await db.from("rooms").select("*").eq("code", roomCode).single();
+      const { data: players } = await db
+        .from("players")
+        .select("id, pseudo, is_impostor")
+        .eq("room_code", roomCode);
+      const { data: votes } = await db
+        .from("votes")
+        .select("voter_id, target_id")
+        .eq("room_code", roomCode);
+      if (!room || !players || !votes) return;
+
+      players.sort((a, b) => a.pseudo.localeCompare(b.pseudo));
+      const isHost = (myId === room.host_id);
+
+      if (room.status === "lobby") {
+        // Nouvelle partie : on oublie le rôle précédent et on le recache
+        myRole = null;
+        $("role").hidden = true;
+        $("toggleRole").textContent = "Voir mon rôle";
+
+        show("lobby");
+        $("roomCode").textContent = roomCode;
+        $("players").innerHTML = "";
+        for (const p of players) {
+          const li = document.createElement("li");
+          let label = p.pseudo;
+          if (p.id === room.host_id) label += " (hôte)";
+          if (p.id === myId) label += " (vous)";
+          li.textContent = label;
+          $("players").appendChild(li);
+        }
+        $("count").textContent = `${players.length} / ${room.max_players} joueurs`;
+        $("start").hidden = !isHost;
+        $("start").disabled = (players.length !== room.max_players);
+        return;
+      }
+
+      if (room.status === "playing") {
+        const me = players.find((p) => p.id === myId);
+        myRole = me ? me.is_impostor : null;
+        $("hostButtons").hidden = !isHost;
+        show("game");
+        return;
+      }
+
+      if (room.status === "voting") {
+        // L'hôte clôt le vote quand tout le monde a voté
+        if (isHost && votes.length === players.length) {
+          await db.from("rooms").update({ status: "finished" }).eq("code", roomCode);
+        }
+
+        const hasVoted = votes.some((v) => v.voter_id === myId);
+        $("voteList").innerHTML = "";
+        if (hasVoted) {
+          $("voteStatus").textContent =
+            `Vote enregistré. En attente des autres (${votes.length} / ${players.length}).`;
+        } else {
+          $("voteStatus").textContent = "Qui est l'imposteur ?";
+          for (const p of players) {
+            if (p.id === myId) continue; // on ne vote pas pour soi
+            const b = document.createElement("button");
+            b.textContent = p.pseudo;
+            b.addEventListener("click", () => vote(p.id));
+            $("voteList").appendChild(b);
+          }
+        }
+        show("voting");
+        return;
+      }
+
+      if (room.status === "finished") {
+        const impostor = players.find((p) => p.is_impostor);
+        const name = impostor ? impostor.pseudo : "?";
+
+        // Nombre de voix reçues par chaque joueur
+        const counts = {};
+        for (const v of votes) counts[v.target_id] = (counts[v.target_id] || 0) + 1;
+
+        if (room.result === "win") {
+          $("resultText").textContent =
+            `Victoire de l'équipe ! L'imposteur était ${name} : il perd.`;
+          $("voteResult").innerHTML = "";
+        } else {
+          // Règle : l'imposteur perd seulement s'il a STRICTEMENT plus de voix que chaque autre joueur
+          const impostorVotes = impostor ? (counts[impostor.id] || 0) : 0;
+          const othersMax = Math.max(
+            0, ...players.filter((p) => !p.is_impostor).map((p) => counts[p.id] || 0)
+          );
+          const caught = impostorVotes > othersMax;
+          $("resultText").textContent = caught
+            ? `Défaite, mais ${name} était l'imposteur et il a été démasqué : il perd aussi !`
+            : `Défaite. ${name} était l'imposteur et il n'a pas été démasqué : l'imposteur gagne.`;
+
+          $("voteResult").innerHTML = "";
+          for (const p of players) {
+            const li = document.createElement("li");
+            li.textContent = `${p.pseudo} : ${counts[p.id] || 0} vote(s)`;
+            $("voteResult").appendChild(li);
+          }
+        }
+        $("again").hidden = !isHost;
+        show("finished");
+      }
+    }
+
+    // ---------- Actions ----------
+
+    // Lancer la partie : tirage de l'imposteur, puis changement de statut
+    $("start").addEventListener("click", async () => {
+      const { data: players } = await db.from("players").select("id").eq("room_code", roomCode);
+      const impostor = players[Math.floor(Math.random() * players.length)];
+      await db.from("players").update({ is_impostor: true }).eq("id", impostor.id);
+      await db.from("rooms").update({ status: "playing" }).eq("code", roomCode);
+    });
+
+    // Voir ou cacher son rôle
+    $("toggleRole").addEventListener("click", () => {
+      const roleEl = $("role");
+      if (!roleEl.hidden) {
+        roleEl.hidden = true;
+        $("toggleRole").textContent = "Voir mon rôle";
+      } else {
+        roleEl.textContent = myRole
+          ? "Vous êtes l'IMPOSTEUR : faites perdre l'équipe sans vous faire repérer."
+          : "Vous êtes un ÉQUIPIER : gagnez la partie et démasquez l'imposteur.";
+        roleEl.hidden = false;
+        $("toggleRole").textContent = "Cacher mon rôle";
+      }
+    });
+
+    // L'hôte indique le résultat de la partie
+    $("win").addEventListener("click", async () => {
+      await db.from("rooms").update({ status: "finished", result: "win" }).eq("code", roomCode);
+    });
+    $("loss").addEventListener("click", async () => {
+      await db.from("rooms").update({ status: "voting", result: "loss" }).eq("code", roomCode);
+    });
+
+    // Un joueur vote (la table interdit un second vote du même joueur)
+    async function vote(targetId) {
+      const { error } = await db
+        .from("votes")
+        .insert({ room_code: roomCode, voter_id: myId, target_id: targetId });
+      if (error) console.error(error);
+    }
+
+    // Nouvelle partie : on efface votes, rôles et résultat, et on revient au salon
+    $("again").addEventListener("click", async () => {
+      await db.from("votes").delete().eq("room_code", roomCode);
+      await db.from("players").update({ is_impostor: false }).eq("room_code", roomCode);
+      await db.from("rooms").update({ status: "lobby", result: null }).eq("code", roomCode);
+    });
+  </script>
+</body>
+</html>
