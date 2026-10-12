@@ -23,6 +23,9 @@
     <ul id="players"></ul>
     <p id="count"></p>
     <button id="start" hidden>Lancer la partie</button>
+    <br><br>
+    <button id="leave">Quitter le salon</button>
+    <button id="closeRoom" hidden>Fermer le salon</button>
   </div>
 
   <!-- Écran 3 : partie en cours -->
@@ -63,6 +66,7 @@
     let roomCode = null;
     let myId = null;
     let myRole = null; // true = imposteur, false = équipier
+    let channel = null; // le canal temps réel du salon courant
 
     const $ = (id) => document.getElementById(id);
     const SCREENS = ["home", "lobby", "game", "voting", "finished"];
@@ -120,13 +124,19 @@
 
       const { data: room } = await db.from("rooms").select("*").eq("code", code).maybeSingle();
       if (!room) return say("Salon introuvable.");
-      if (room.status !== "lobby") return say("La partie a déjà commencé.");
 
-      const { count } = await db
-        .from("players")
-        .select("*", { count: "exact", head: true })
-        .eq("room_code", code);
-      if (count >= room.max_players) return say("Salon complet.");
+      const { data } = await db.from("players").select("id, pseudo").eq("room_code", code);
+      const existing = data || [];
+
+      // Même pseudo qu'un joueur du salon : on reprend sa place (à tout moment)
+      const same = existing.find((p) => p.pseudo.toLowerCase() === pseudo.toLowerCase());
+      if (same) return enterRoom(code, same.id);
+
+      // Sinon, c'est un nouveau joueur : possible seulement en salle d'attente
+      if (room.status !== "lobby") {
+        return say("La partie a déjà commencé : seuls les joueurs déjà présents peuvent revenir, avec leur pseudo.");
+      }
+      if (existing.length >= room.max_players) return say("Salon complet.");
 
       const player = await addPlayer(code, pseudo);
       if (!player) return;
@@ -145,7 +155,7 @@
       } catch (e) { console.error(e); }
 
       // On écoute les trois tables : joueurs, salon et votes
-      db.channel("room-" + code)
+      channel = db.channel("room-" + code)
         .on("postgres_changes",
             { event: "*", schema: "public", table: "players", filter: `room_code=eq.${code}` },
             refresh)
@@ -155,6 +165,14 @@
         .on("postgres_changes",
             { event: "*", schema: "public", table: "votes", filter: `room_code=eq.${code}` },
             refresh)
+        // Les suppressions ne peuvent pas être filtrées : on les écoute toutes,
+        // et refresh() relit simplement l'état de notre salon
+        .on("postgres_changes",
+            { event: "DELETE", schema: "public", table: "players" },
+            refresh)
+        .on("postgres_changes",
+            { event: "DELETE", schema: "public", table: "rooms" },
+            refresh)
         .subscribe();
 
       refresh();
@@ -162,7 +180,14 @@
 
     // Relit tout et choisit l'écran selon le statut du salon
     async function refresh() {
-      const { data: room } = await db.from("rooms").select("*").eq("code", roomCode).single();
+      if (!roomCode) return; // pas de salon courant : rien à afficher
+      const { data: room, error: roomError } = await db
+        .from("rooms")
+        .select("*")
+        .eq("code", roomCode)
+        .maybeSingle();
+      if (roomError) { console.error(roomError); return; }
+      if (!room) return leaveLocally("Le salon a été fermé.");
       const { data: players } = await db
         .from("players")
         .select("id, pseudo, is_impostor")
@@ -171,7 +196,12 @@
         .from("votes")
         .select("voter_id, target_id")
         .eq("room_code", roomCode);
-      if (!room || !players || !votes) return;
+      if (!players || !votes) return;
+
+      // Si l'on n'est plus dans la liste des joueurs, on a été retiré du salon
+      if (!players.some((p) => p.id === myId)) {
+        return leaveLocally("Vous avez été retiré du salon.");
+      }
 
       players.sort((a, b) => a.pseudo.localeCompare(b.pseudo));
       const isHost = (myId === room.host_id);
@@ -191,10 +221,19 @@
           if (p.id === room.host_id) label += " (hôte)";
           if (p.id === myId) label += " (vous)";
           li.textContent = label;
+          // L'hôte peut retirer un autre joueur (salle d'attente uniquement)
+          if (isHost && p.id !== myId) {
+            const kick = document.createElement("button");
+            kick.textContent = "Retirer";
+            kick.addEventListener("click", () => kickPlayer(p.id));
+            li.append(" ", kick);
+          }
           $("players").appendChild(li);
         }
         $("count").textContent = `${players.length} / ${room.max_players} joueurs`;
         $("start").hidden = !isHost;
+        $("leave").hidden = isHost;
+        $("closeRoom").hidden = !isHost;
         $("start").disabled = (players.length !== room.max_players);
         return;
       }
@@ -314,6 +353,39 @@
       await db.from("players").update({ is_impostor: false }).eq("room_code", roomCode);
       await db.from("rooms").update({ status: "lobby", result: null }).eq("code", roomCode);
     });
+
+    // ---------- Quitter, fermer, retirer (salle d'attente uniquement) ----------
+
+    // Oublie le salon en local et revient à l'accueil
+    function leaveLocally(message) {
+      if (channel) { db.removeChannel(channel); channel = null; }
+      try { sessionStorage.removeItem(SESSION_KEY); } catch (e) { console.error(e); }
+      roomCode = null;
+      myId = null;
+      myRole = null;
+      show("home");
+      say(message);
+    }
+
+    // Un joueur (non hôte) quitte : on oublie le salon d'abord, puis on le supprime de la base
+    $("leave").addEventListener("click", async () => {
+      const id = myId;
+      leaveLocally("");
+      await db.from("players").delete().eq("id", id);
+    });
+
+    // L'hôte ferme le salon : la suppression efface aussi les joueurs et les votes,
+    // et les autres écrans reviennent à l'accueil en le constatant
+    $("closeRoom").addEventListener("click", async () => {
+      const code = roomCode;
+      leaveLocally("Salon fermé.");
+      await db.from("rooms").delete().eq("code", code);
+    });
+
+    // L'hôte retire un joueur (par exemple un onglet fermé qui occupe une place)
+    async function kickPlayer(id) {
+      await db.from("players").delete().eq("id", id);
+    }
 
     // ---------- Retrouver sa place après un rechargement ----------
 
