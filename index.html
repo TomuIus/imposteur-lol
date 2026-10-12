@@ -41,6 +41,7 @@
       color: #fff; text-shadow: 3px 3px 0 var(--line); letter-spacing: 1px;
     }
     h2 { margin: 0 0 14px; font-size: 1.6rem; }
+    h3 { margin: 20px 0 10px; font-size: 1.2rem; }
 
     /* Chaque écran est une "carte" avec contour épais et ombre décalée */
     #home, #lobby, #game, #voting, #finished {
@@ -88,7 +89,7 @@
     #create, #again, #join, #toggleRole, #start, #win { color: #2b2d42; }
 
     /* Liste des joueurs : une pastille de couleur par joueur, façon équipage */
-    #players, #voteResult { list-style: none; margin: 0 0 14px; padding: 0; }
+    #players, #voteResult, #ranking { list-style: none; margin: 0 0 14px; padding: 0; }
     #players li {
       display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
       padding: 10px 14px; font-weight: 700; font-size: 1.1rem;
@@ -128,7 +129,7 @@
 
     /* Résultat */
     #resultText { font-size: 1.3rem; font-weight: 700; line-height: 1.4; }
-    #voteResult li {
+    #voteResult li, #ranking li {
       margin-bottom: 8px; padding: 8px 14px; font-weight: 700;
       background: var(--paper); border: 2px solid var(--line); border-radius: 12px;
     }
@@ -201,6 +202,8 @@
     <h2>Fin de partie</h2>
     <p id="resultText"></p>
     <ul id="voteResult"></ul>
+    <h3>Classement du salon</h3>
+    <ul id="ranking"></ul>
     <button id="again" hidden>Nouvelle partie</button>
   </div>
 
@@ -344,7 +347,7 @@
       if (!room) return leaveLocally("Le salon a été fermé.");
       const { data: players } = await db
         .from("players")
-        .select("id, pseudo, is_impostor")
+        .select("id, pseudo, is_impostor, score")
         .eq("room_code", roomCode);
       const { data: votes } = await db
         .from("votes")
@@ -374,6 +377,7 @@
           let label = p.pseudo;
           if (p.id === room.host_id) label += " (hôte)";
           if (p.id === myId) label += " (vous)";
+        if (p.score > 0) label += ` · ${p.score} pt(s)`;
           li.textContent = label;
           // L'hôte peut retirer un autre joueur (salle d'attente uniquement)
           if (isHost && p.id !== myId) {
@@ -403,7 +407,13 @@
       if (room.status === "voting") {
         // L'hôte clôt le vote quand tout le monde a voté
         if (isHost && votes.length === players.length) {
-          await db.from("rooms").update({ status: "finished" }).eq("code", roomCode);
+          const { data: done } = await db
+            .from("rooms")
+            .update({ status: "finished" })
+            .eq("code", roomCode)
+            .eq("status", "voting")
+            .select();
+          if (done && done.length) await awardPoints("loss");
         }
 
         const hasVoted = votes.some((v) => v.voter_id === myId);
@@ -429,21 +439,14 @@
         const impostor = players.find((p) => p.is_impostor);
         const name = impostor ? impostor.pseudo : "?";
 
-        // Nombre de voix reçues par chaque joueur
-        const counts = {};
-        for (const v of votes) counts[v.target_id] = (counts[v.target_id] || 0) + 1;
+        const { counts, caught, gains } = computePoints(room.result, players, votes);
 
         if (room.result === "win") {
           $("resultText").textContent =
             `Victoire de l'équipe ! L'imposteur était ${name} : il perd.`;
           $("voteResult").innerHTML = "";
         } else {
-          // Règle : l'imposteur perd seulement s'il a STRICTEMENT plus de voix que chaque autre joueur
-          const impostorVotes = impostor ? (counts[impostor.id] || 0) : 0;
-          const othersMax = Math.max(
-            0, ...players.filter((p) => !p.is_impostor).map((p) => counts[p.id] || 0)
-          );
-          const caught = impostorVotes > othersMax;
+          // (la règle « strictement plus de voix » est dans computePoints)
           $("resultText").textContent = caught
             ? `Défaite, mais ${name} était l'imposteur et il a été démasqué : il perd aussi !`
             : `Défaite. ${name} était l'imposteur et il n'a pas été démasqué : l'imposteur gagne.`;
@@ -455,6 +458,18 @@
             $("voteResult").appendChild(li);
           }
         }
+        // Classement cumulé du salon, avec les points gagnés pendant cette partie
+        const ranking = [...players].sort(
+          (a, b) => b.score - a.score || a.pseudo.localeCompare(b.pseudo)
+        );
+        $("ranking").innerHTML = "";
+        ranking.forEach((p, i) => {
+          const li = document.createElement("li");
+          const gain = gains[p.id] ? ` (+${gains[p.id]})` : "";
+          li.textContent = `${i + 1}. ${p.pseudo} : ${p.score} pt(s)${gain}`;
+          $("ranking").appendChild(li);
+        });
+
         $("again").hidden = !isHost;
         show("finished");
       }
@@ -488,7 +503,13 @@
 
     // L'hôte indique le résultat de la partie
     $("win").addEventListener("click", async () => {
-      await db.from("rooms").update({ status: "finished", result: "win" }).eq("code", roomCode);
+      const { data: done } = await db
+        .from("rooms")
+        .update({ status: "finished", result: "win" })
+        .eq("code", roomCode)
+        .eq("status", "playing")
+        .select();
+      if (done && done.length) await awardPoints("win");
     });
     $("loss").addEventListener("click", async () => {
       await db.from("rooms").update({ status: "voting", result: "loss" }).eq("code", roomCode);
@@ -508,6 +529,67 @@
       await db.from("players").update({ is_impostor: false }).eq("room_code", roomCode);
       await db.from("rooms").update({ status: "lobby", result: null }).eq("code", roomCode);
     });
+
+    // ---------- Points ----------
+
+    // Barème : à ajuster ici après les tests si le jeu paraît déséquilibré
+    const POINTS = {
+      teamWin: 1,      // partie gagnée : chaque équipier
+      voteHit: 1,      // partie perdue, imposteur démasqué : chaque joueur qui a voté pour lui
+      impostorWin: 2   // partie perdue, imposteur non démasqué (égalité comprise)
+    };
+
+    // Calcule qui gagne combien de points, sans rien écrire dans la base
+    function computePoints(result, players, votes) {
+      const impostor = players.find((p) => p.is_impostor);
+
+      // Nombre de voix reçues par chaque joueur
+      const counts = {};
+      for (const v of votes) counts[v.target_id] = (counts[v.target_id] || 0) + 1;
+
+      const gains = {};
+      let caught = false;
+
+      if (result === "win") {
+        for (const p of players) if (!p.is_impostor) gains[p.id] = POINTS.teamWin;
+      } else if (impostor) {
+        // Règle : l'imposteur est démasqué seulement s'il a STRICTEMENT plus de voix que chaque autre
+        const impostorVotes = counts[impostor.id] || 0;
+        const othersMax = Math.max(
+          0, ...players.filter((p) => !p.is_impostor).map((p) => counts[p.id] || 0)
+        );
+        caught = impostorVotes > othersMax;
+
+        if (caught) {
+          for (const v of votes) {
+            if (v.target_id === impostor.id) gains[v.voter_id] = (gains[v.voter_id] || 0) + POINTS.voteHit;
+          }
+        } else {
+          gains[impostor.id] = POINTS.impostorWin;
+        }
+      }
+      return { impostor, counts, caught, gains };
+    }
+
+    // Ajoute les points au score de chaque joueur (appelé une seule fois, par l'hôte)
+    async function awardPoints(result) {
+      const { data: players } = await db
+        .from("players")
+        .select("id, score, is_impostor")
+        .eq("room_code", roomCode);
+      const { data: votes } = await db
+        .from("votes")
+        .select("voter_id, target_id")
+        .eq("room_code", roomCode);
+      if (!players || !votes) return;
+
+      const { gains } = computePoints(result, players, votes);
+      await Promise.all(
+        players
+          .filter((p) => gains[p.id])
+          .map((p) => db.from("players").update({ score: p.score + gains[p.id] }).eq("id", p.id))
+      );
+    }
 
     // ---------- Quitter, fermer, retirer (salle d'attente uniquement) ----------
 
