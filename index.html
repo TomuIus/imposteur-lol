@@ -3,9 +3,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    // Thème choisi précédemment, sinon celui de l'appareil
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem("imposteur-lol-theme"); } catch (e) {}
+      if (t !== "dark" && t !== "light") {
+        t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
   <title>Imposteur LoL</title>
   <style>
-    :root { --ink: #2b2d42; --paper: #ffe3f0; --bg: #ffb3d9; }
+    :root {
+      --line: #2b2d42; --text: #2b2d42; --card: #fff;
+      --paper: #ffe3f0; --bg: #ffb3d9; --dots: #ff8fc7;
+    }
+    /* Thème sombre : violets profonds, plus doux pour les yeux le soir */
+    [data-theme="dark"] {
+      --line: #0d0b1a; --text: #f3ecff; --card: #2b2745;
+      --paper: #383359; --bg: #1d1a2f; --dots: #2a2644;
+    }
     [hidden] { display: none !important; }
 
     /* Fond façon plateau de jeu : crème avec petits points */
@@ -13,30 +32,30 @@
       margin: 0; padding: 28px 16px 48px;
       display: flex; flex-direction: column; align-items: center; gap: 18px;
       font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
-      color: var(--ink); background-color: var(--bg);
-      background-image: radial-gradient(#ff8fc7 2px, transparent 2px);
+      color: var(--text); background-color: var(--bg);
+      background-image: radial-gradient(var(--dots) 2px, transparent 2px);
       background-size: 26px 26px;
     }
     h1 {
       margin: 0; text-align: center; font-size: clamp(2.2rem, 6vw, 3.4rem);
-      color: #fff; text-shadow: 3px 3px 0 var(--ink); letter-spacing: 1px;
+      color: #fff; text-shadow: 3px 3px 0 var(--line); letter-spacing: 1px;
     }
     h2 { margin: 0 0 14px; font-size: 1.6rem; }
 
     /* Chaque écran est une "carte" avec contour épais et ombre décalée */
     #home, #lobby, #game, #voting, #finished {
       box-sizing: border-box; width: 100%; max-width: 560px;
-      padding: 24px; background: #fff;
-      border: 3px solid var(--ink); border-radius: 20px; box-shadow: 7px 7px 0 var(--ink);
+      padding: 24px; background: var(--card);
+      border: 3px solid var(--line); border-radius: 20px; box-shadow: 7px 7px 0 var(--line);
     }
     #home { display: flex; flex-direction: column; gap: 12px; }
     #home br, #lobby br { display: none; }
 
     /* Code du salon : une pastille bien visible */
     #codeBanner {
-      margin: 0; padding: 8px 18px; font-weight: 700;
-      background: #ffd166; border: 3px solid var(--ink); border-radius: 999px;
-      box-shadow: 3px 3px 0 var(--ink);
+      margin: 0; padding: 8px 18px; font-weight: 700; color: #2b2d42;
+      background: #ffd166; border: 3px solid var(--line); border-radius: 999px;
+      box-shadow: 3px 3px 0 var(--line);
     }
     #bannerCode, #roomCode { font-size: 1.3em; letter-spacing: .25em; }
     #roomCode { color: #ef476f; }
@@ -44,7 +63,8 @@
     /* Champs de saisie */
     input {
       box-sizing: border-box; width: 100%; font: inherit; font-size: 1.1rem;
-      padding: 12px 14px; border: 3px solid var(--ink); border-radius: 14px;
+      padding: 12px 14px; border: 3px solid var(--line); border-radius: 14px;
+      background: var(--card); color: var(--text);
     }
     input:focus { outline: 3px solid #4cc9f0; }
     #code { text-align: center; text-transform: uppercase; letter-spacing: .3em; font-weight: 700; }
@@ -54,28 +74,29 @@
     button {
       font: inherit; font-weight: 700; font-size: 1.05rem; min-height: 48px;
       padding: 10px 22px; margin-bottom: 6px; cursor: pointer;
-      color: var(--ink); background: #fff;
-      border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 5px 0 var(--ink);
+      color: var(--text); background: var(--card);
+      border: 3px solid var(--line); border-radius: 14px; box-shadow: 0 5px 0 var(--line);
       transition: transform .08s, box-shadow .08s;
     }
     button:hover:not(:disabled) { transform: translateY(-1px); }
-    button:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 1px 0 var(--ink); }
+    button:active:not(:disabled) { transform: translateY(4px); box-shadow: 0 1px 0 var(--line); }
     button:disabled { opacity: .45; cursor: not-allowed; }
     #create, #again { background: #ffd166; }
     #join, #toggleRole { background: #4cc9f0; }
     #start, #win { background: #06d6a0; }
     #loss, #closeRoom { background: #ff5d73; color: #fff; }
+    #create, #again, #join, #toggleRole, #start, #win { color: #2b2d42; }
 
     /* Liste des joueurs : une pastille de couleur par joueur, façon équipage */
     #players, #voteResult { list-style: none; margin: 0 0 14px; padding: 0; }
     #players li {
       display: flex; align-items: center; gap: 12px; margin-bottom: 10px;
       padding: 10px 14px; font-weight: 700; font-size: 1.1rem;
-      background: var(--paper); border: 3px solid var(--ink); border-radius: 14px;
+      background: var(--paper); border: 3px solid var(--line); border-radius: 14px;
     }
     #players li::before {
       content: ""; flex: none; width: 22px; height: 22px; border-radius: 50%;
-      border: 3px solid var(--ink); background: #ef476f;
+      border: 3px solid var(--line); background: #ef476f;
     }
     #players li:nth-child(5n+2)::before { background: #ffd166; }
     #players li:nth-child(5n+3)::before { background: #06d6a0; }
@@ -83,20 +104,20 @@
     #players li:nth-child(5n+5)::before { background: #b185db; }
     #players li button {
       margin: 0 0 0 auto; min-height: 36px; padding: 4px 14px; font-size: .9rem;
-      background: #ff5d73; color: #fff; box-shadow: 0 3px 0 var(--ink);
+      background: #ff5d73; color: #fff; box-shadow: 0 3px 0 var(--line);
     }
     #count { margin: 0 0 16px; font-weight: 700; opacity: .7; }
 
     /* Écran de jeu */
     #role {
       margin: 16px 0; padding: 20px; text-align: center; font-size: 1.3rem; font-weight: 700;
-      border: 3px solid var(--ink); border-radius: 16px;
+      border: 3px solid var(--line); border-radius: 16px;
     }
     #role.impostor { background: #ff5d73; color: #fff; }
-    #role.crew { background: #4cc9f0; }
+    #role.crew { background: #4cc9f0; color: #2b2d42; }
     #hostButtons {
       display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; padding-top: 18px;
-      border-top: 3px dashed var(--ink);
+      border-top: 3px dashed var(--line);
     }
     #hostButtons p { width: 100%; margin: 0; font-weight: 700; }
 
@@ -109,18 +130,29 @@
     #resultText { font-size: 1.3rem; font-weight: 700; line-height: 1.4; }
     #voteResult li {
       margin-bottom: 8px; padding: 8px 14px; font-weight: 700;
-      background: var(--paper); border: 2px solid var(--ink); border-radius: 12px;
+      background: var(--paper); border: 2px solid var(--line); border-radius: 12px;
+    }
+
+    [data-theme="dark"] h1 { color: #ff9fd0; }
+    [data-theme="dark"] #message { color: #ff8099; }
+    [data-theme="dark"] #hostButtons { border-top-color: #5b5585; }
+
+    /* Bouton de bascule clair / sombre, toujours accessible en haut à droite */
+    #themeToggle {
+      position: fixed; top: 12px; right: 12px; z-index: 10;
+      width: 48px; padding: 0; margin: 0; font-size: 1.4rem; border-radius: 50%;
     }
 
     /* Sur téléphone : cartes plus compactes, boutons pleine largeur */
     @media (max-width: 600px) {
       body { padding: 18px 10px 36px; }
-      #home, #lobby, #game, #voting, #finished { padding: 18px; box-shadow: 5px 5px 0 var(--ink); }
+      #home, #lobby, #game, #voting, #finished { padding: 18px; box-shadow: 5px 5px 0 var(--line); }
       #home button, #lobby > button, #game > button, #finished button, #hostButtons button { width: 100%; }
     }
   </style>
 </head>
 <body>
+  <button id="themeToggle" aria-label="Changer de thème"></button>
   <h1>Imposteur LoL</h1>
   <p id="codeBanner" hidden>Code du salon : <strong id="bannerCode"></strong></p>
 
@@ -534,6 +566,24 @@
       }
       enterRoom(saved.roomCode, saved.playerId);
     }
+
+    // ---------- Thème clair / sombre ----------
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      // L'icône montre le thème vers lequel on bascule
+      $("themeToggle").textContent = (theme === "dark") ? "☀️" : "🌙";
+      try { localStorage.setItem("imposteur-lol-theme", theme); } catch (e) { console.error(e); }
+    }
+
+    $("themeToggle").addEventListener("click", () => {
+      const current = document.documentElement.getAttribute("data-theme");
+      applyTheme(current === "dark" ? "light" : "dark");
+    });
+
+    // Met l'icône à jour au chargement (sans changer le thème déjà appliqué)
+    $("themeToggle").textContent =
+      (document.documentElement.getAttribute("data-theme") === "dark") ? "☀️" : "🌙";
 
     restoreSession();
   </script>
