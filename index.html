@@ -6,6 +6,7 @@
 </head>
 <body>
   <h1>Imposteur LoL</h1>
+  <p id="codeBanner" hidden>Code du salon : <strong id="bannerCode"></strong></p>
 
   <!-- Écran 1 : accueil -->
   <div id="home">
@@ -76,6 +77,11 @@
 
     function show(screen) {
       for (const s of SCREENS) $(s).hidden = (s !== screen);
+
+      // Le code du salon reste visible pendant toute la partie
+      // (inutile à l'accueil, et déjà affiché dans le titre de la salle d'attente)
+      $("codeBanner").hidden = (screen === "home" || screen === "lobby");
+      $("bannerCode").textContent = roomCode || "";
     }
 
     function randomCode() {
